@@ -161,25 +161,33 @@ local function ExpandHitbox(size)
     
     for _, enemy in pairs(enemyFolder:GetChildren()) do
         if enemy:IsA("Model") then
-            for _, part in pairs(enemy:GetDescendants()) do
-                if part:IsA("BasePart") and (part.Name == "HumanoidRootPart" or part.Name == "Torso" or part.Name == "Head") then
-                    if not Data.originalSizes[part] then
-                        Data.originalSizes[part] = {
-                            Size = part.Size,
-                            Transparency = part.Transparency,
-                            CanCollide = part.CanCollide,
-                            Material = part.Material,
-                            Massless = part.Massless
-                        }
-                    end
-                    part.Size = Vector3.new(size, size, size)
-                    part.Transparency = 0.5
-                    part.Material = Enum.Material.ForceField
-                    part.CanCollide = false
-                    part.Massless = true
-                    count = count + 1
-                    break
+            -- Find HumanoidRootPart or Torso
+            local mainPart = enemy:FindFirstChild("HumanoidRootPart") or enemy:FindFirstChild("Torso")
+            
+            if mainPart and mainPart:IsA("BasePart") then
+                -- Save original properties
+                if not Data.originalSizes[mainPart] then
+                    Data.originalSizes[mainPart] = {
+                        Size = mainPart.Size,
+                        Transparency = mainPart.Transparency,
+                        CanCollide = mainPart.CanCollide,
+                        Material = mainPart.Material,
+                        Massless = mainPart.Massless or false
+                    }
                 end
+                
+                -- Expand hitbox
+                mainPart.Size = Vector3.new(size, size, size)
+                mainPart.Transparency = 0.7
+                mainPart.CanCollide = false
+                mainPart.Massless = true
+                
+                -- Make it visible with ForceField effect
+                if mainPart.Transparency < 1 then
+                    mainPart.Material = Enum.Material.ForceField
+                end
+                
+                count = count + 1
             end
         end
     end
@@ -226,47 +234,138 @@ local function AutoGetMoney()
     local hrp = character.HumanoidRootPart
     
     if Config.moneyMode == "TP Money" then
+        -- TP Mode: Teleport to each money part
         for _, part in pairs(workspace:GetDescendants()) do
-            if part:IsA("BasePart") and part.Name == "Money" and not Data.collectedMoney[part] then
+            if part:IsA("BasePart") and part.Name == "Money" and not Data.collectedMoney[part] and part.Parent then
                 pcall(function()
+                    -- Teleport to money
                     hrp.CFrame = part.CFrame + Vector3.new(0, 3, 0)
-                    task.wait(0.1)
+                    task.wait(0.2) -- Wait longer for server to register position
                     
+                    -- Method 1: Touch interaction (most common)
                     if firetouchinterest then
                         firetouchinterest(hrp, part, 0)
-                        task.wait(0.05)
+                        task.wait(0.1)
                         firetouchinterest(hrp, part, 1)
+                        task.wait(0.1)
                     end
+                    
+                    -- Method 2: ProximityPrompt
+                    local prompt = part:FindFirstChildOfClass("ProximityPrompt")
+                    if prompt and fireproximityprompt then
+                        fireproximityprompt(prompt)
+                        task.wait(0.1)
+                    end
+                    
+                    -- Method 3: ClickDetector
+                    local clickDetector = part:FindFirstChildOfClass("ClickDetector")
+                    if clickDetector and fireclickdetector then
+                        fireclickdetector(clickDetector)
+                        task.wait(0.1)
+                    end
+                    
+                    -- Method 4: RemoteEvent in part
+                    local remoteEvent = part:FindFirstChildOfClass("RemoteEvent")
+                    if remoteEvent then
+                        remoteEvent:FireServer()
+                        task.wait(0.1)
+                    end
+                    
+                    -- Method 5: RemoteFunction in part
+                    local remoteFunction = part:FindFirstChildOfClass("RemoteFunction")
+                    if remoteFunction then
+                        remoteFunction:InvokeServer()
+                        task.wait(0.1)
+                    end
+                    
+                    -- Method 6: Common money remotes in ReplicatedStorage
+                    if ReplicatedStorage:FindFirstChild("RemoteEvent") then
+                        for _, remote in pairs(ReplicatedStorage.RemoteEvent:GetChildren()) do
+                            if remote:IsA("RemoteEvent") then
+                                local name = remote.Name:lower()
+                                if name:match("money") or name:match("collect") or name:match("pickup") or name:match("coin") then
+                                    remote:FireServer(part)
+                                    task.wait(0.1)
+                                end
+                            end
+                        end
+                    end
+                    
+                    -- Method 7: Try common remote names directly
+                    pcall(function()
+                        if ReplicatedStorage:FindFirstChild("Remotes") then
+                            local remotes = ReplicatedStorage.Remotes
+                            if remotes:FindFirstChild("CollectMoney") then
+                                remotes.CollectMoney:FireServer(part)
+                            elseif remotes:FindFirstChild("GetMoney") then
+                                remotes.GetMoney:FireServer(part)
+                            elseif remotes:FindFirstChild("PickupMoney") then
+                                remotes.PickupMoney:FireServer(part)
+                            end
+                        end
+                    end)
                     
                     Data.collectedMoney[part] = true
                 end)
+                
+                -- Small delay between money parts
+                task.wait(0.05)
             end
         end
     else
-        local moneyParts = GetMoneyInRange(Config.moneyDistance)
-        for _, part in pairs(moneyParts) do
-            pcall(function()
-                if firetouchinterest then
-                    firetouchinterest(hrp, part, 0)
-                    task.wait(0.05)
-                    firetouchinterest(hrp, part, 1)
-                end
+        -- No TP Mode: Interact from distance without moving
+        for _, part in pairs(workspace:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name == "Money" and not Data.collectedMoney[part] and part.Parent then
+                local distance = (part.Position - hrp.Position).Magnitude
                 
-                local prompt = part:FindFirstChildOfClass("ProximityPrompt")
-                if prompt and fireproximityprompt then
-                    fireproximityprompt(prompt)
+                -- Only interact if within specified distance
+                if distance <= Config.moneyDistance then
+                    pcall(function()
+                        -- Method 1: Touch interaction
+                        if firetouchinterest then
+                            firetouchinterest(hrp, part, 0)
+                            task.wait(0.05)
+                            firetouchinterest(hrp, part, 1)
+                        end
+                        
+                        -- Method 2: ProximityPrompt
+                        local prompt = part:FindFirstChildOfClass("ProximityPrompt")
+                        if prompt and fireproximityprompt then
+                            fireproximityprompt(prompt)
+                        end
+                        
+                        -- Method 3: ClickDetector
+                        local clickDetector = part:FindFirstChildOfClass("ClickDetector")
+                        if clickDetector and fireclickdetector then
+                            fireclickdetector(clickDetector)
+                        end
+                        
+                        -- Method 4: RemoteEvent in part
+                        local remoteEvent = part:FindFirstChildOfClass("RemoteEvent")
+                        if remoteEvent then
+                            remoteEvent:FireServer()
+                        end
+                        
+                        -- Method 5: Common money remotes in ReplicatedStorage
+                        if ReplicatedStorage:FindFirstChild("RemoteEvent") then
+                            for _, remote in pairs(ReplicatedStorage.RemoteEvent:GetChildren()) do
+                                if remote:IsA("RemoteEvent") then
+                                    local name = remote.Name:lower()
+                                    if name:match("money") or name:match("collect") or name:match("pickup") or name:match("coin") then
+                                        remote:FireServer(part)
+                                    end
+                                end
+                            end
+                        end
+                        
+                        Data.collectedMoney[part] = true
+                    end)
                 end
-                
-                local clickDetector = part:FindFirstChildOfClass("ClickDetector")
-                if clickDetector and fireclickdetector then
-                    fireclickdetector(clickDetector)
-                end
-                
-                Data.collectedMoney[part] = true
-            end)
+            end
         end
     end
     
+    -- Clean up collected money table
     for part, _ in pairs(Data.collectedMoney) do
         if not part or not part.Parent then
             Data.collectedMoney[part] = nil
@@ -491,52 +590,4 @@ AutoKillTab:CreateToggle({
 })
 
 -- Visual Tab
-VisualTab:CreateSection("🎯 Hitbox Expander")
-
-VisualTab:CreateSlider({
-    Name = "Size",
-    Range = {5, 100},
-    Increment = 5,
-    Suffix = " studs",
-    CurrentValue = 20,
-    Callback = function(value)
-        Config.hitboxSize = value
-        if State.hitboxEnabled then
-            RestoreHitbox()
-            ExpandHitbox(value)
-        end
-    end
-})
-
-VisualTab:CreateToggle({
-    Name = "Enable Hitbox",
-    CurrentValue = false,
-    Callback = function(value)
-        State.hitboxEnabled = value
-        
-        if value then
-            local count = ExpandHitbox(Config.hitboxSize)
-            Notify("Enabled", "Hitbox ON: " .. count)
-            
-            Connections.hitbox = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    ExpandHitbox(Config.hitboxSize)
-                end)
-            end)
-        else
-            RestoreHitbox()
-            if Connections.hitbox then
-                Connections.hitbox:Disconnect()
-            end
-            Notify("Disabled", "Hitbox OFF")
-        end
-    end
-})
-
--- Credits
-CreditsTab:CreateParagraph({
-    Title = "🌿 Protect a Garden Hub",
-    Content = "Made by Rey_Script\nVersion: 2.1\n\nFeatures:\n• Item Pickup\n• Auto Money\n• Kill Aura\n• Auto Kill\n• Hitbox Expander"
-})
-
-print("✅ Rey_Script Hub v2.1 loaded successfully!")
+VisualTab:CreateSection("🎯 Hi
