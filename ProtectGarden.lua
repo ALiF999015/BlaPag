@@ -1,16 +1,25 @@
 --[[
     Protect a Garden - Rey_Script Hub
     Created by Rey_Script
-    Version: 3.0 - Using Fluent UI
+    Version: 2.1
 ]]
 
-print("🌿 Loading Rey_Script Hub v3.0...")
+print("Loading Rey_Script Hub...")
 
--- Wait for game
+-- Wait for game to fully load
 repeat task.wait() until game:IsLoaded()
 
--- Load Fluent UI Library (more reliable than Rayfield)
-local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+-- Load Rayfield UI Library with error handling
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet("https://sirius.menu/rayfield", true))()
+end)
+
+if not success or not Rayfield then
+    error("Failed to load Rayfield UI Library. Please check your internet connection.")
+    return
+end
+
+print("Rayfield loaded successfully!")
 
 -- Services
 local Players = game:GetService("Players")
@@ -18,7 +27,7 @@ local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Configuration
+-- Variables
 local Config = {
     itemName = "",
     toolName = "",
@@ -29,13 +38,19 @@ local Config = {
 }
 
 local State = {
-    killAura = false,
-    hitbox = false,
-    autoMoney = false,
-    autoKill = false
+    killAuraEnabled = false,
+    hitboxEnabled = false,
+    autoMoneyEnabled = false,
+    autoKillEnabled = false
 }
 
-local Connections = {}
+local Connections = {
+    killAura = nil,
+    hitbox = nil,
+    autoMoney = nil,
+    autoKill = nil
+}
+
 local Data = {
     originalSizes = {},
     collectedMoney = {},
@@ -43,32 +58,26 @@ local Data = {
 }
 
 -- Create Window
-local Window = Fluent:CreateWindow({
-    Title = "🌿 Protect a Garden - Rey_Script Hub",
-    SubTitle = "by Rey_Script",
-    TabWidth = 160,
-    Size = UDim2.fromOffset(580, 460),
-    Acrylic = true,
-    Theme = "Dark",
-    MinimizeKey = Enum.KeyCode.LeftControl
+local Window = Rayfield:CreateWindow({
+    Name = "🌿 Protect a Garden - Rey_Script Hub",
+    LoadingTitle = "Rey_Script Hub",
+    LoadingSubtitle = "by Rey_Script",
+    ConfigurationSaving = {
+        Enabled = false
+    },
+    Discord = {
+        Enabled = false
+    },
+    KeySystem = false
 })
-
--- Create Tabs
-local Tabs = {
-    Main = Window:AddTab({ Title = "🏠 Main", Icon = "" }),
-    Farm = Window:AddTab({ Title = "💰 Farm", Icon = "" }),
-    Combat = Window:AddTab({ Title = "⚔️ Combat", Icon = "" }),
-    AutoKill = Window:AddTab({ Title = "🎯 Auto Kill", Icon = "" }),
-    Visual = Window:AddTab({ Title = "👁️ Visual", Icon = "" }),
-    Settings = Window:AddTab({ Title = "⚙️ Settings", Icon = "" })
-}
 
 -- Utility Functions
 local function Notify(title, content)
-    Fluent:Notify({
+    Rayfield:Notify({
         Title = title,
         Content = content,
-        Duration = 3
+        Duration = 3,
+        Image = 4483362458
     })
 end
 
@@ -152,9 +161,11 @@ local function ExpandHitbox(size)
     
     for _, enemy in pairs(enemyFolder:GetChildren()) do
         if enemy:IsA("Model") then
+            -- Find HumanoidRootPart or Torso
             local mainPart = enemy:FindFirstChild("HumanoidRootPart") or enemy:FindFirstChild("Torso")
             
             if mainPart and mainPart:IsA("BasePart") then
+                -- Save original properties
                 if not Data.originalSizes[mainPart] then
                     Data.originalSizes[mainPart] = {
                         Size = mainPart.Size,
@@ -165,11 +176,13 @@ local function ExpandHitbox(size)
                     }
                 end
                 
+                -- Expand hitbox
                 mainPart.Size = Vector3.new(size, size, size)
                 mainPart.Transparency = 0.7
                 mainPart.CanCollide = false
                 mainPart.Massless = true
                 
+                -- Make it visible with ForceField effect
                 if mainPart.Transparency < 1 then
                     mainPart.Material = Enum.Material.ForceField
                 end
@@ -194,6 +207,26 @@ local function RestoreHitbox()
     Data.originalSizes = {}
 end
 
+local function GetMoneyInRange(distance)
+    local moneyParts = {}
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then
+        return moneyParts
+    end
+    
+    local playerPos = character.HumanoidRootPart.Position
+    
+    for _, part in pairs(workspace:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name == "Money" and not Data.collectedMoney[part] then
+            local dist = (part.Position - playerPos).Magnitude
+            if dist <= distance then
+                table.insert(moneyParts, part)
+            end
+        end
+    end
+    return moneyParts
+end
+
 local function AutoGetMoney()
     local character = LocalPlayer.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return end
@@ -201,57 +234,78 @@ local function AutoGetMoney()
     local hrp = character.HumanoidRootPart
     
     if Config.moneyMode == "TP Money" then
+        -- TP Mode: Teleport to each money part
         for _, part in pairs(workspace:GetDescendants()) do
             if part:IsA("BasePart") and part.Name == "Money" and not Data.collectedMoney[part] and part.Parent then
                 pcall(function()
+                    -- Teleport to money
                     hrp.CFrame = part.CFrame + Vector3.new(0, 3, 0)
-                    task.wait(0.2)
+                    task.wait(0.15)
                     
+                    -- Try all interaction methods
                     if firetouchinterest then
                         firetouchinterest(hrp, part, 0)
-                        task.wait(0.1)
+                        task.wait(0.05)
                         firetouchinterest(hrp, part, 1)
-                        task.wait(0.1)
                     end
                     
                     local prompt = part:FindFirstChildOfClass("ProximityPrompt")
                     if prompt and fireproximityprompt then
                         fireproximityprompt(prompt)
-                        task.wait(0.1)
                     end
                     
                     local clickDetector = part:FindFirstChildOfClass("ClickDetector")
                     if clickDetector and fireclickdetector then
                         fireclickdetector(clickDetector)
-                        task.wait(0.1)
                     end
                     
                     Data.collectedMoney[part] = true
                 end)
-                task.wait(0.05)
             end
         end
     else
+        -- No TP Mode: Interact from distance without moving
         for _, part in pairs(workspace:GetDescendants()) do
             if part:IsA("BasePart") and part.Name == "Money" and not Data.collectedMoney[part] and part.Parent then
                 local distance = (part.Position - hrp.Position).Magnitude
                 
+                -- Only interact if within specified distance
                 if distance <= Config.moneyDistance then
                     pcall(function()
+                        -- Method 1: Touch interaction
                         if firetouchinterest then
                             firetouchinterest(hrp, part, 0)
                             task.wait(0.05)
                             firetouchinterest(hrp, part, 1)
                         end
                         
+                        -- Method 2: ProximityPrompt
                         local prompt = part:FindFirstChildOfClass("ProximityPrompt")
                         if prompt and fireproximityprompt then
                             fireproximityprompt(prompt)
                         end
                         
+                        -- Method 3: ClickDetector
                         local clickDetector = part:FindFirstChildOfClass("ClickDetector")
                         if clickDetector and fireclickdetector then
                             fireclickdetector(clickDetector)
+                        end
+                        
+                        -- Method 4: RemoteEvent in part
+                        local remoteEvent = part:FindFirstChildOfClass("RemoteEvent")
+                        if remoteEvent then
+                            remoteEvent:FireServer()
+                        end
+                        
+                        -- Method 5: Common money remotes in ReplicatedStorage
+                        if ReplicatedStorage:FindFirstChild("RemoteEvent") then
+                            for _, remote in pairs(ReplicatedStorage.RemoteEvent:GetChildren()) do
+                                if remote.Name:lower():match("money") or 
+                                   remote.Name:lower():match("collect") or
+                                   remote.Name:lower():match("pickup") then
+                                    remote:FireServer(part)
+                                end
+                            end
                         end
                         
                         Data.collectedMoney[part] = true
@@ -261,6 +315,7 @@ local function AutoGetMoney()
         end
     end
     
+    -- Clean up collected money table
     for part, _ in pairs(Data.collectedMoney) do
         if not part or not part.Parent then
             Data.collectedMoney[part] = nil
@@ -268,26 +323,28 @@ local function AutoGetMoney()
     end
 end
 
--- Main Tab
-Tabs.Main:AddParagraph({
-    Title = "📦 Item Pickup",
-    Content = "Enter item name and execute pickup"
-})
+-- Create Tabs
+local MainTab = Window:CreateTab("🏠 Main", 4483362458)
+local FarmTab = Window:CreateTab("💰 Farm", 4483362458)
+local CombatTab = Window:CreateTab("⚔️ Combat", 4483362458)
+local AutoKillTab = Window:CreateTab("🎯 Auto Kill", 4483362458)
+local VisualTab = Window:CreateTab("👁️ Visual", 4483362458)
+local CreditsTab = Window:CreateTab("📜 Credits", 4483362458)
 
-local ItemInput = Tabs.Main:AddInput("ItemInput", {
-    Title = "Item Name",
-    Default = "",
-    Placeholder = "Enter item name...",
-    Numeric = false,
-    Finished = false,
-    Callback = function(value)
-        Config.itemName = value
+-- Main Tab
+MainTab:CreateSection("📦 Item Pickup")
+
+MainTab:CreateInput({
+    Name = "Item Name",
+    PlaceholderText = "Enter item name...",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(text)
+        Config.itemName = text
     end
 })
 
-Tabs.Main:AddButton({
-    Title = "Execute Item Pickup",
-    Description = "Pickup the specified item",
+MainTab:CreateButton({
+    Name = "Execute Item Pickup",
     Callback = function()
         if Config.itemName == "" then
             Notify("Error", "Enter item name!")
@@ -303,60 +360,55 @@ Tabs.Main:AddButton({
 })
 
 -- Farm Tab
-Tabs.Farm:AddParagraph({
-    Title = "💰 Auto Get Money",
-    Content = "Automatically collect money parts"
-})
+FarmTab:CreateSection("💰 Auto Get Money")
 
-local MoneyDropdown = Tabs.Farm:AddDropdown("MoneyMode", {
-    Title = "Collection Mode",
-    Values = {"No TP", "TP Money"},
-    Multi = false,
-    Default = 1,
-})
-
-MoneyDropdown:OnChanged(function(value)
-    Config.moneyMode = value
-end)
-
-local DistanceSlider = Tabs.Farm:AddSlider("MoneyDistance", {
-    Title = "No TP Distance",
-    Description = "Interaction range for No TP mode",
-    Default = 50,
-    Min = 10,
-    Max = 500,
-    Rounding = 0,
-    Callback = function(value)
-        Config.moneyDistance = value
+FarmTab:CreateDropdown({
+    Name = "Collection Mode",
+    Options = {"No TP", "TP Money"},
+    CurrentOption = {"No TP"},
+    MultipleOptions = false,
+    Callback = function(option)
+        Config.moneyMode = option[1]
     end
 })
 
-local AutoMoneyToggle = Tabs.Farm:AddToggle("AutoMoney", {
-    Title = "Enable Auto Money",
-    Default = false
-})
-
-AutoMoneyToggle:OnChanged(function()
-    State.autoMoney = AutoMoneyToggle.Value
-    
-    if State.autoMoney then
-        Data.collectedMoney = {}
-        Notify("Enabled", "Auto Money: " .. Config.moneyMode)
-        
-        Connections.autoMoney = RunService.Heartbeat:Connect(function()
-            pcall(AutoGetMoney)
-        end)
-    else
-        if Connections.autoMoney then
-            Connections.autoMoney:Disconnect()
+FarmTab:CreateInput({
+    Name = "Interaction Distance",
+    PlaceholderText = "Default: 50",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(text)
+        local dist = tonumber(text)
+        if dist and dist > 0 then
+            Config.moneyDistance = dist
+            Notify("Updated", "Distance: " .. dist)
         end
-        Notify("Disabled", "Auto Money OFF")
     end
-end)
+})
 
-Tabs.Farm:AddButton({
-    Title = "Reset Money Cache",
-    Description = "Clear collected money list",
+FarmTab:CreateToggle({
+    Name = "Enable Auto Money",
+    CurrentValue = false,
+    Callback = function(value)
+        State.autoMoneyEnabled = value
+        
+        if value then
+            Data.collectedMoney = {}
+            Notify("Enabled", "Auto Money ON")
+            
+            Connections.autoMoney = RunService.Heartbeat:Connect(function()
+                pcall(AutoGetMoney)
+            end)
+        else
+            if Connections.autoMoney then
+                Connections.autoMoney:Disconnect()
+            end
+            Notify("Disabled", "Auto Money OFF")
+        end
+    end
+})
+
+FarmTab:CreateButton({
+    Name = "Reset Cache",
     Callback = function()
         Data.collectedMoney = {}
         Notify("Reset", "Cache cleared!")
@@ -364,196 +416,176 @@ Tabs.Farm:AddButton({
 })
 
 -- Combat Tab
-Tabs.Combat:AddParagraph({
-    Title = "⚔️ Kill Aura",
-    Content = "Attack enemies within radius"
-})
+CombatTab:CreateSection("⚔️ Kill Aura")
 
-local ToolInput = Tabs.Combat:AddInput("ToolInput", {
-    Title = "Tool Name",
-    Default = "",
-    Placeholder = "Enter tool name...",
-    Numeric = false,
-    Finished = false,
-    Callback = function(value)
-        Config.toolName = value
+CombatTab:CreateInput({
+    Name = "Tool Name",
+    PlaceholderText = "Enter tool name...",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(text)
+        Config.toolName = text
     end
 })
 
-local RadiusSlider = Tabs.Combat:AddSlider("KillRadius", {
-    Title = "Kill Aura Radius",
-    Description = "Attack range in studs",
-    Default = 20,
-    Min = 5,
-    Max = 100,
-    Rounding = 0,
+CombatTab:CreateSlider({
+    Name = "Radius",
+    Range = {5, 100},
+    Increment = 5,
+    Suffix = " studs",
+    CurrentValue = 20,
     Callback = function(value)
         Config.killAuraRadius = value
     end
 })
 
-local KillAuraToggle = Tabs.Combat:AddToggle("KillAura", {
-    Title = "Enable Kill Aura",
-    Default = false
-})
-
-KillAuraToggle:OnChanged(function()
-    State.killAura = KillAuraToggle.Value
-    
-    if State.killAura then
-        if Config.toolName == "" then
-            Notify("Error", "Enter tool name!")
-            KillAuraToggle:SetValue(false)
-            return
-        end
-        
-        Notify("Enabled", "Kill Aura: " .. Config.killAuraRadius .. " studs")
-        
-        Connections.killAura = RunService.Heartbeat:Connect(function()
-            pcall(function()
-                local enemies = GetEnemiesInRadius(Config.killAuraRadius)
-                if #enemies > 0 then
-                    AttackEnemy()
-                end
-            end)
-        end)
-    else
-        if Connections.killAura then
-            Connections.killAura:Disconnect()
-        end
-        Notify("Disabled", "Kill Aura OFF")
-    end
-end)
-
--- Auto Kill Tab
-Tabs.AutoKill:AddParagraph({
-    Title = "🎯 Auto Kill Enemy",
-    Content = "Teleport to enemies and kill them"
-})
-
-local AutoKillToolInput = Tabs.AutoKill:AddInput("AutoKillTool", {
-    Title = "Tool Name",
-    Default = "",
-    Placeholder = "Enter tool name...",
-    Numeric = false,
-    Finished = false,
+CombatTab:CreateToggle({
+    Name = "Enable Kill Aura",
+    CurrentValue = false,
     Callback = function(value)
-        Config.toolName = value
-    end
-})
-
-local AutoKillToggle = Tabs.AutoKill:AddToggle("AutoKill", {
-    Title = "Enable Auto Kill",
-    Default = false
-})
-
-AutoKillToggle:OnChanged(function()
-    State.autoKill = AutoKillToggle.Value
-    
-    if State.autoKill then
-        if Config.toolName == "" then
-            Notify("Error", "Enter tool name!")
-            AutoKillToggle:SetValue(false)
-            return
-        end
+        State.killAuraEnabled = value
         
-        Notify("Enabled", "Auto Kill hunting...")
-        
-        Connections.autoKill = RunService.Heartbeat:Connect(function()
-            pcall(function()
-                local character = LocalPlayer.Character
-                if not character or not character:FindFirstChild("HumanoidRootPart") then return end
-                
-                local hrp = character.HumanoidRootPart
-                
-                if not Data.currentTarget or not Data.currentTarget.Parent then
-                    local enemies = GetAllEnemies()
+        if value then
+            if Config.toolName == "" then
+                Notify("Error", "Enter tool name!")
+                return
+            end
+            
+            Notify("Enabled", "Kill Aura ON")
+            
+            Connections.killAura = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    local enemies = GetEnemiesInRadius(Config.killAuraRadius)
                     if #enemies > 0 then
-                        Data.currentTarget = enemies[1]
-                    else
-                        return
-                    end
-                end
-                
-                if Data.currentTarget then
-                    local humanoid = Data.currentTarget:FindFirstChild("Humanoid")
-                    if not humanoid or humanoid.Health <= 0 then
-                        Data.currentTarget = nil
-                        return
-                    end
-                    
-                    local enemyRoot = Data.currentTarget:FindFirstChild("HumanoidRootPart") or 
-                                    Data.currentTarget:FindFirstChild("Torso") or 
-                                    Data.currentTarget:FindFirstChild("Head")
-                    if enemyRoot then
-                        hrp.CFrame = enemyRoot.CFrame + Vector3.new(0, 5, 0)
-                        task.wait(0.05)
                         AttackEnemy()
                     end
-                end
+                end)
             end)
-        end)
-    else
-        Data.currentTarget = nil
-        if Connections.autoKill then
-            Connections.autoKill:Disconnect()
+        else
+            if Connections.killAura then
+                Connections.killAura:Disconnect()
+            end
+            Notify("Disabled", "Kill Aura OFF")
         end
-        Notify("Disabled", "Auto Kill OFF")
     end
-end)
-
--- Visual Tab
-Tabs.Visual:AddParagraph({
-    Title = "🎯 Hitbox Expander",
-    Content = "Expand enemy hitboxes"
 })
 
-local HitboxSlider = Tabs.Visual:AddSlider("HitboxSize", {
-    Title = "Hitbox Size",
-    Description = "Size in studs",
-    Default = 20,
-    Min = 5,
-    Max = 100,
-    Rounding = 0,
+-- Auto Kill Tab
+AutoKillTab:CreateSection("🎯 Auto Kill Enemy")
+
+AutoKillTab:CreateInput({
+    Name = "Tool Name",
+    PlaceholderText = "Enter tool name...",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(text)
+        Config.toolName = text
+    end
+})
+
+AutoKillTab:CreateToggle({
+    Name = "Enable Auto Kill",
+    CurrentValue = false,
+    Callback = function(value)
+        State.autoKillEnabled = value
+        
+        if value then
+            if Config.toolName == "" then
+                Notify("Error", "Enter tool name!")
+                return
+            end
+            
+            Notify("Enabled", "Auto Kill ON")
+            
+            Connections.autoKill = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    local character = LocalPlayer.Character
+                    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+                    
+                    local hrp = character.HumanoidRootPart
+                    
+                    if not Data.currentTarget or not Data.currentTarget.Parent then
+                        local enemies = GetAllEnemies()
+                        if #enemies > 0 then
+                            Data.currentTarget = enemies[1]
+                        else
+                            return
+                        end
+                    end
+                    
+                    if Data.currentTarget then
+                        local humanoid = Data.currentTarget:FindFirstChild("Humanoid")
+                        if not humanoid or humanoid.Health <= 0 then
+                            Data.currentTarget = nil
+                            return
+                        end
+                        
+                        local enemyRoot = Data.currentTarget:FindFirstChild("HumanoidRootPart") or 
+                                        Data.currentTarget:FindFirstChild("Torso") or 
+                                        Data.currentTarget:FindFirstChild("Head")
+                        if enemyRoot then
+                            hrp.CFrame = enemyRoot.CFrame + Vector3.new(0, 5, 0)
+                            task.wait(0.05)
+                            AttackEnemy()
+                        end
+                    end
+                end)
+            end)
+        else
+            Data.currentTarget = nil
+            if Connections.autoKill then
+                Connections.autoKill:Disconnect()
+            end
+            Notify("Disabled", "Auto Kill OFF")
+        end
+    end
+})
+
+-- Visual Tab
+VisualTab:CreateSection("🎯 Hitbox Expander")
+
+VisualTab:CreateSlider({
+    Name = "Size",
+    Range = {5, 100},
+    Increment = 5,
+    Suffix = " studs",
+    CurrentValue = 20,
     Callback = function(value)
         Config.hitboxSize = value
-        if State.hitbox then
+        if State.hitboxEnabled then
             RestoreHitbox()
             ExpandHitbox(value)
         end
     end
 })
 
-local HitboxToggle = Tabs.Visual:AddToggle("Hitbox", {
-    Title = "Enable Hitbox Expander",
-    Default = false
-})
-
-HitboxToggle:OnChanged(function()
-    State.hitbox = HitboxToggle.Value
-    
-    if State.hitbox then
-        local count = ExpandHitbox(Config.hitboxSize)
-        Notify("Enabled", "Hitbox: " .. count .. " enemies")
+VisualTab:CreateToggle({
+    Name = "Enable Hitbox",
+    CurrentValue = false,
+    Callback = function(value)
+        State.hitboxEnabled = value
         
-        Connections.hitbox = RunService.Heartbeat:Connect(function()
-            pcall(function()
-                ExpandHitbox(Config.hitboxSize)
+        if value then
+            local count = ExpandHitbox(Config.hitboxSize)
+            Notify("Enabled", "Hitbox ON: " .. count)
+            
+            Connections.hitbox = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    ExpandHitbox(Config.hitboxSize)
+                end)
             end)
-        end)
-    else
-        RestoreHitbox()
-        if Connections.hitbox then
-            Connections.hitbox:Disconnect()
+        else
+            RestoreHitbox()
+            if Connections.hitbox then
+                Connections.hitbox:Disconnect()
+            end
+            Notify("Disabled", "Hitbox OFF")
         end
-        Notify("Disabled", "Hitbox OFF")
     end
-end)
-
--- Settings Tab
-Tabs.Settings:AddParagraph({
-    Title = "🌿 Protect a Garden Hub",
-    Content = "Version: 3.0\nMade by Rey_Script\n\nFeatures:\n• Item Pickup\n• Auto Money (2 Modes)\n• Kill Aura\n• Auto Kill Enemy\n• Hitbox Expander"
 })
 
-print("✅ Rey_Script Hub v3.0 loaded successfully!")
+-- Credits
+CreditsTab:CreateParagraph({
+    Title = "🌿 Protect a Garden Hub",
+    Content = "Made by Rey_Script\nVersion: 2.1\n\nFeatures:\n• Item Pickup\n• Auto Money\n• Kill Aura\n• Auto Kill\n• Hitbox Expander"
+})
+
+print("✅ Rey_Script Hub v2.1 loaded successfully!")
