@@ -1,46 +1,25 @@
--- Protect a Garden - Rey_Script Hub
--- Created by Rey_Script
--- Using Rayfield UI Library
+--[[
+    Protect a Garden - Rey_Script Hub
+    Created by Rey_Script
+    Version: 2.1
+]]
 
--- Wait for game to load
-if not game:IsLoaded() then
-    game.Loaded:Wait()
-end
+print("Loading Rey_Script Hub...")
 
--- Load Rayfield UI Library
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- Wait for game to fully load
+repeat task.wait() until game:IsLoaded()
 
-if not Rayfield then
-    warn("Failed to load Rayfield UI Library")
+-- Load Rayfield UI Library with error handling
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet("https://sirius.menu/rayfield", true))()
+end)
+
+if not success or not Rayfield then
+    error("Failed to load Rayfield UI Library. Please check your internet connection.")
     return
 end
 
--- Create Window
-local Window = Rayfield:CreateWindow({
-   Name = "🌿 Protect a Garden - Rey_Script Hub",
-   LoadingTitle = "Rey_Script Hub Loading...",
-   LoadingSubtitle = "by Rey_Script",
-   ConfigurationSaving = {
-      Enabled = false,
-      FolderName = nil,
-      FileName = "ReyScriptHub"
-   },
-   Discord = {
-      Enabled = false,
-      Invite = "noinvitelink",
-      RememberJoins = true
-   },
-   KeySystem = false,
-   KeySettings = {
-      Title = "Untitled",
-      Subtitle = "Key System",
-      Note = "No method of obtaining the key is provided",
-      FileName = "Key",
-      SaveKey = false,
-      GrabKeyFromSite = false,
-      Key = {"Hello"}
-   }
-})
+print("Rayfield loaded successfully!")
 
 -- Services
 local Players = game:GetService("Players")
@@ -49,25 +28,59 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- Variables
-local itemName = ""
-local toolName = ""
-local killAuraRadius = 20
-local hitboxSize = 20
-local moneyDistance = 50
-local killAuraEnabled = false
-local hitboxEnabled = false
-local autoMoneyEnabled = false
-local autoKillEnabled = false
-local moneyMode = "No TP"
-local killAuraConnection = nil
-local hitboxConnection = nil
-local autoMoneyConnection = nil
-local autoKillConnection = nil
-local originalSizes = {}
-local collectedMoney = {}
-local currentTarget = nil
+local Config = {
+    itemName = "",
+    toolName = "",
+    killAuraRadius = 20,
+    hitboxSize = 20,
+    moneyDistance = 50,
+    moneyMode = "No TP"
+}
 
--- Functions
+local State = {
+    killAuraEnabled = false,
+    hitboxEnabled = false,
+    autoMoneyEnabled = false,
+    autoKillEnabled = false
+}
+
+local Connections = {
+    killAura = nil,
+    hitbox = nil,
+    autoMoney = nil,
+    autoKill = nil
+}
+
+local Data = {
+    originalSizes = {},
+    collectedMoney = {},
+    currentTarget = nil
+}
+
+-- Create Window
+local Window = Rayfield:CreateWindow({
+    Name = "🌿 Protect a Garden - Rey_Script Hub",
+    LoadingTitle = "Rey_Script Hub",
+    LoadingSubtitle = "by Rey_Script",
+    ConfigurationSaving = {
+        Enabled = false
+    },
+    Discord = {
+        Enabled = false
+    },
+    KeySystem = false
+})
+
+-- Utility Functions
+local function Notify(title, content)
+    Rayfield:Notify({
+        Title = title,
+        Content = content,
+        Duration = 3,
+        Image = 4483362458
+    })
+end
+
 local function GetEnemiesInRadius(radius)
     local enemies = {}
     local character = LocalPlayer.Character
@@ -118,46 +131,40 @@ local function AttackEnemy()
     local character = LocalPlayer.Character
     if not character then return false end
     
-    local tool = character:FindFirstChild(toolName)
+    local tool = character:FindFirstChild(Config.toolName)
     if not tool then return false end
     
-    local success = false
+    local attacked = false
     
     local toolActive = tool:FindFirstChild("ToolActive")
     if toolActive and toolActive:IsA("RemoteEvent") then
         toolActive:FireServer()
-        success = true
+        attacked = true
     end
     
-    local remoteEvent = tool:FindFirstChildOfClass("RemoteEvent")
-    if remoteEvent then
-        remoteEvent:FireServer()
-        success = true
+    if not attacked then
+        local remoteEvent = tool:FindFirstChildOfClass("RemoteEvent")
+        if remoteEvent then
+            remoteEvent:FireServer()
+            attacked = true
+        end
     end
     
-    local attackFunc = tool:FindFirstChild("Attack")
-    if attackFunc and attackFunc:IsA("RemoteFunction") then
-        attackFunc:InvokeServer()
-        success = true
-    end
-    
-    return success
+    return attacked
 end
 
 local function ExpandHitbox(size)
     local count = 0
     local enemyFolder = workspace:FindFirstChild("Enemy")
     
-    if not enemyFolder then
-        return count
-    end
+    if not enemyFolder then return count end
     
     for _, enemy in pairs(enemyFolder:GetChildren()) do
         if enemy:IsA("Model") then
             for _, part in pairs(enemy:GetDescendants()) do
                 if part:IsA("BasePart") and (part.Name == "HumanoidRootPart" or part.Name == "Torso" or part.Name == "Head") then
-                    if not originalSizes[part] then
-                        originalSizes[part] = {
+                    if not Data.originalSizes[part] then
+                        Data.originalSizes[part] = {
                             Size = part.Size,
                             Transparency = part.Transparency,
                             CanCollide = part.CanCollide,
@@ -180,7 +187,7 @@ local function ExpandHitbox(size)
 end
 
 local function RestoreHitbox()
-    for part, data in pairs(originalSizes) do
+    for part, data in pairs(Data.originalSizes) do
         if part and part.Parent then
             part.Size = data.Size
             part.Transparency = data.Transparency
@@ -189,17 +196,7 @@ local function RestoreHitbox()
             part.Massless = data.Massless
         end
     end
-    originalSizes = {}
-end
-
-local function FindMoneyParts()
-    local moneyParts = {}
-    for _, part in pairs(workspace:GetDescendants()) do
-        if part:IsA("BasePart") and part.Name == "Money" and not collectedMoney[part] then
-            table.insert(moneyParts, part)
-        end
-    end
-    return moneyParts
+    Data.originalSizes = {}
 end
 
 local function GetMoneyInRange(distance)
@@ -212,7 +209,7 @@ local function GetMoneyInRange(distance)
     local playerPos = character.HumanoidRootPart.Position
     
     for _, part in pairs(workspace:GetDescendants()) do
-        if part:IsA("BasePart") and part.Name == "Money" and not collectedMoney[part] then
+        if part:IsA("BasePart") and part.Name == "Money" and not Data.collectedMoney[part] then
             local dist = (part.Position - playerPos).Magnitude
             if dist <= distance then
                 table.insert(moneyParts, part)
@@ -222,86 +219,57 @@ local function GetMoneyInRange(distance)
     return moneyParts
 end
 
-local function AutoGetMoney(mode, distance)
+local function AutoGetMoney()
     local character = LocalPlayer.Character
-    if not character or not character:FindFirstChild("HumanoidRootPart") then
-        return
-    end
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
     
     local hrp = character.HumanoidRootPart
     
-    if mode == "TP Money" then
-        local moneyParts = FindMoneyParts()
-        for _, moneyPart in pairs(moneyParts) do
-            if moneyPart and moneyPart.Parent then
+    if Config.moneyMode == "TP Money" then
+        for _, part in pairs(workspace:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name == "Money" and not Data.collectedMoney[part] then
                 pcall(function()
-                    hrp.CFrame = moneyPart.CFrame + Vector3.new(0, 3, 0)
+                    hrp.CFrame = part.CFrame + Vector3.new(0, 3, 0)
                     task.wait(0.1)
                     
                     if firetouchinterest then
-                        firetouchinterest(hrp, moneyPart, 0)
+                        firetouchinterest(hrp, part, 0)
                         task.wait(0.05)
-                        firetouchinterest(hrp, moneyPart, 1)
+                        firetouchinterest(hrp, part, 1)
                     end
                     
-                    local prompt = moneyPart:FindFirstChildOfClass("ProximityPrompt")
-                    if prompt then
-                        fireproximityprompt(prompt)
-                    end
-                    
-                    local clickDetector = moneyPart:FindFirstChildOfClass("ClickDetector")
-                    if clickDetector then
-                        fireclickdetector(clickDetector)
-                    end
-                    
-                    collectedMoney[moneyPart] = true
+                    Data.collectedMoney[part] = true
                 end)
             end
         end
     else
-        local moneyParts = GetMoneyInRange(distance)
-        for _, moneyPart in pairs(moneyParts) do
-            if moneyPart and moneyPart.Parent then
-                pcall(function()
-                    if firetouchinterest then
-                        firetouchinterest(hrp, moneyPart, 0)
-                        task.wait(0.05)
-                        firetouchinterest(hrp, moneyPart, 1)
-                    end
-                    
-                    local prompt = moneyPart:FindFirstChildOfClass("ProximityPrompt")
-                    if prompt then
-                        fireproximityprompt(prompt)
-                    end
-                    
-                    local clickDetector = moneyPart:FindFirstChildOfClass("ClickDetector")
-                    if clickDetector then
-                        fireclickdetector(clickDetector)
-                    end
-                    
-                    local remoteEvent = moneyPart:FindFirstChildOfClass("RemoteEvent")
-                    if remoteEvent then
-                        remoteEvent:FireServer()
-                    end
-                    
-                    if ReplicatedStorage:FindFirstChild("RemoteEvent") then
-                        local remote = ReplicatedStorage.RemoteEvent:FindFirstChild("CollectMoney") or
-                                      ReplicatedStorage.RemoteEvent:FindFirstChild("GetMoney") or
-                                      ReplicatedStorage.RemoteEvent:FindFirstChild("PickupMoney")
-                        if remote then
-                            remote:FireServer(moneyPart)
-                        end
-                    end
-                    
-                    collectedMoney[moneyPart] = true
-                end)
-            end
+        local moneyParts = GetMoneyInRange(Config.moneyDistance)
+        for _, part in pairs(moneyParts) do
+            pcall(function()
+                if firetouchinterest then
+                    firetouchinterest(hrp, part, 0)
+                    task.wait(0.05)
+                    firetouchinterest(hrp, part, 1)
+                end
+                
+                local prompt = part:FindFirstChildOfClass("ProximityPrompt")
+                if prompt and fireproximityprompt then
+                    fireproximityprompt(prompt)
+                end
+                
+                local clickDetector = part:FindFirstChildOfClass("ClickDetector")
+                if clickDetector and fireclickdetector then
+                    fireclickdetector(clickDetector)
+                end
+                
+                Data.collectedMoney[part] = true
+            end)
         end
     end
     
-    for part, _ in pairs(collectedMoney) do
+    for part, _ in pairs(Data.collectedMoney) do
         if not part or not part.Parent then
-            collectedMoney[part] = nil
+            Data.collectedMoney[part] = nil
         end
     end
 end
@@ -312,324 +280,263 @@ local FarmTab = Window:CreateTab("💰 Farm", 4483362458)
 local CombatTab = Window:CreateTab("⚔️ Combat", 4483362458)
 local AutoKillTab = Window:CreateTab("🎯 Auto Kill", 4483362458)
 local VisualTab = Window:CreateTab("👁️ Visual", 4483362458)
+local CreditsTab = Window:CreateTab("📜 Credits", 4483362458)
 
 -- Main Tab
-local ItemSection = MainTab:CreateSection("📦 Item Pickup")
+MainTab:CreateSection("📦 Item Pickup")
 
-local ItemInput = MainTab:CreateInput({
-   Name = "Item Name",
-   PlaceholderText = "Enter item name...",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Text)
-      itemName = Text
-   end,
+MainTab:CreateInput({
+    Name = "Item Name",
+    PlaceholderText = "Enter item name...",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(text)
+        Config.itemName = text
+    end
 })
 
-local ItemButton = MainTab:CreateButton({
-   Name = "Execute Item Pickup",
-   Callback = function()
-      if itemName == "" then
-         Rayfield:Notify({
-            Title = "Error",
-            Content = "Please enter an item name!",
-            Duration = 3,
-            Image = 4483362458,
-         })
-         return
-      end
-      
-      pcall(function()
-         local args = {
-            workspace:WaitForChild(itemName)
-         }
-         ReplicatedStorage:WaitForChild("RemoteEvent"):WaitForChild("PickupItem"):FireServer(unpack(args))
-         Rayfield:Notify({
-            Title = "Success",
-            Content = "Item pickup executed!",
-            Duration = 3,
-            Image = 4483362458,
-         })
-      end)
-   end,
+MainTab:CreateButton({
+    Name = "Execute Item Pickup",
+    Callback = function()
+        if Config.itemName == "" then
+            Notify("Error", "Enter item name!")
+            return
+        end
+        
+        pcall(function()
+            local args = { workspace:WaitForChild(Config.itemName) }
+            ReplicatedStorage:WaitForChild("RemoteEvent"):WaitForChild("PickupItem"):FireServer(unpack(args))
+            Notify("Success", "Item pickup executed!")
+        end)
+    end
 })
 
 -- Farm Tab
-local MoneySection = FarmTab:CreateSection("💰 Auto Get Money")
+FarmTab:CreateSection("💰 Auto Get Money")
 
-local MoneyModeDropdown = FarmTab:CreateDropdown({
-   Name = "Money Collection Mode",
-   Options = {"No TP", "TP Money"},
-   CurrentOption = {"No TP"},
-   MultipleOptions = false,
-   Flag = "MoneyMode",
-   Callback = function(Option)
-      moneyMode = Option[1]
-   end,
+FarmTab:CreateDropdown({
+    Name = "Collection Mode",
+    Options = {"No TP", "TP Money"},
+    CurrentOption = {"No TP"},
+    MultipleOptions = false,
+    Callback = function(option)
+        Config.moneyMode = option[1]
+    end
 })
 
-local MoneyDistanceInput = FarmTab:CreateInput({
-   Name = "No TP Interaction Distance",
-   PlaceholderText = "Enter distance (default: 50)...",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Text)
-      local dist = tonumber(Text)
-      if dist and dist > 0 then
-         moneyDistance = dist
-         Rayfield:Notify({
-            Title = "Distance Updated",
-            Content = "Set to: " .. dist .. " studs",
-            Duration = 2,
-            Image = 4483362458,
-         })
-      end
-   end,
+FarmTab:CreateInput({
+    Name = "Interaction Distance",
+    PlaceholderText = "Default: 50",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(text)
+        local dist = tonumber(text)
+        if dist and dist > 0 then
+            Config.moneyDistance = dist
+            Notify("Updated", "Distance: " .. dist)
+        end
+    end
 })
 
-local AutoMoneyToggle = FarmTab:CreateToggle({
-   Name = "Enable Auto Get Money",
-   CurrentValue = false,
-   Flag = "AutoMoneyToggle",
-   Callback = function(Value)
-      autoMoneyEnabled = Value
-      
-      if autoMoneyEnabled then
-         collectedMoney = {}
-         Rayfield:Notify({
-            Title = "Auto Money ON",
-            Content = "Mode: " .. moneyMode,
-            Duration = 3,
-            Image = 4483362458,
-         })
-         
-         autoMoneyConnection = RunService.Heartbeat:Connect(function()
-            pcall(function()
-               AutoGetMoney(moneyMode, moneyDistance)
+FarmTab:CreateToggle({
+    Name = "Enable Auto Money",
+    CurrentValue = false,
+    Callback = function(value)
+        State.autoMoneyEnabled = value
+        
+        if value then
+            Data.collectedMoney = {}
+            Notify("Enabled", "Auto Money ON")
+            
+            Connections.autoMoney = RunService.Heartbeat:Connect(function()
+                pcall(AutoGetMoney)
             end)
-         end)
-      else
-         Rayfield:Notify({
-            Title = "Auto Money OFF",
-            Content = "Disabled",
-            Duration = 3,
-            Image = 4483362458,
-         })
-         
-         if autoMoneyConnection then
-            autoMoneyConnection:Disconnect()
-            autoMoneyConnection = nil
-         end
-      end
-   end,
+        else
+            if Connections.autoMoney then
+                Connections.autoMoney:Disconnect()
+            end
+            Notify("Disabled", "Auto Money OFF")
+        end
+    end
 })
 
 FarmTab:CreateButton({
-   Name = "Reset Money Cache",
-   Callback = function()
-      collectedMoney = {}
-      Rayfield:Notify({
-         Title = "Cache Reset",
-         Content = "Done!",
-         Duration = 2,
-         Image = 4483362458,
-      })
-   end,
+    Name = "Reset Cache",
+    Callback = function()
+        Data.collectedMoney = {}
+        Notify("Reset", "Cache cleared!")
+    end
 })
 
 -- Combat Tab
-local CombatSection = CombatTab:CreateSection("⚔️ Kill Aura")
+CombatTab:CreateSection("⚔️ Kill Aura")
 
 CombatTab:CreateInput({
-   Name = "Tool Name",
-   PlaceholderText = "Enter tool name...",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Text)
-      toolName = Text
-   end,
+    Name = "Tool Name",
+    PlaceholderText = "Enter tool name...",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(text)
+        Config.toolName = text
+    end
 })
 
 CombatTab:CreateSlider({
-   Name = "Kill Aura Radius",
-   Range = {5, 100},
-   Increment = 5,
-   Suffix = " studs",
-   CurrentValue = 20,
-   Flag = "KillAuraRadius",
-   Callback = function(Value)
-      killAuraRadius = Value
-   end,
+    Name = "Radius",
+    Range = {5, 100},
+    Increment = 5,
+    Suffix = " studs",
+    CurrentValue = 20,
+    Callback = function(value)
+        Config.killAuraRadius = value
+    end
 })
 
 CombatTab:CreateToggle({
-   Name = "Enable Kill Aura",
-   CurrentValue = false,
-   Flag = "KillAuraToggle",
-   Callback = function(Value)
-      killAuraEnabled = Value
-      
-      if killAuraEnabled then
-         if toolName == "" then
-            Rayfield:Notify({
-               Title = "Error",
-               Content = "Enter tool name!",
-               Duration = 3,
-               Image = 4483362458,
-            })
-            return
-         end
-         
-         Rayfield:Notify({
-            Title = "Kill Aura ON",
-            Content = "Radius: " .. killAuraRadius,
-            Duration = 3,
-            Image = 4483362458,
-         })
-         
-         killAuraConnection = RunService.Heartbeat:Connect(function()
-            pcall(function()
-               local enemies = GetEnemiesInRadius(killAuraRadius)
-               if #enemies > 0 then
-                  AttackEnemy()
-               end
+    Name = "Enable Kill Aura",
+    CurrentValue = false,
+    Callback = function(value)
+        State.killAuraEnabled = value
+        
+        if value then
+            if Config.toolName == "" then
+                Notify("Error", "Enter tool name!")
+                return
+            end
+            
+            Notify("Enabled", "Kill Aura ON")
+            
+            Connections.killAura = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    local enemies = GetEnemiesInRadius(Config.killAuraRadius)
+                    if #enemies > 0 then
+                        AttackEnemy()
+                    end
+                end)
             end)
-         end)
-      else
-         if killAuraConnection then
-            killAuraConnection:Disconnect()
-         end
-      end
-   end,
+        else
+            if Connections.killAura then
+                Connections.killAura:Disconnect()
+            end
+            Notify("Disabled", "Kill Aura OFF")
+        end
+    end
 })
 
 -- Auto Kill Tab
-local AutoKillSection = AutoKillTab:CreateSection("🎯 Auto Kill Enemy")
+AutoKillTab:CreateSection("🎯 Auto Kill Enemy")
 
 AutoKillTab:CreateInput({
-   Name = "Tool Name",
-   PlaceholderText = "Enter tool name...",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Text)
-      toolName = Text
-   end,
+    Name = "Tool Name",
+    PlaceholderText = "Enter tool name...",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(text)
+        Config.toolName = text
+    end
 })
 
 AutoKillTab:CreateToggle({
-   Name = "Enable Auto Kill",
-   CurrentValue = false,
-   Flag = "AutoKillToggle",
-   Callback = function(Value)
-      autoKillEnabled = Value
-      
-      if autoKillEnabled then
-         if toolName == "" then
-            Rayfield:Notify({
-               Title = "Error",
-               Content = "Enter tool name!",
-               Duration = 3,
-               Image = 4483362458,
-            })
-            return
-         end
-         
-         Rayfield:Notify({
-            Title = "Auto Kill ON",
-            Content = "Hunting...",
-            Duration = 3,
-            Image = 4483362458,
-         })
-         
-         autoKillConnection = RunService.Heartbeat:Connect(function()
-            pcall(function()
-               local character = LocalPlayer.Character
-               if not character or not character:FindFirstChild("HumanoidRootPart") then
-                  return
-               end
-               
-               local hrp = character.HumanoidRootPart
-               
-               if not currentTarget or not currentTarget.Parent or currentTarget:FindFirstChild("Humanoid").Health <= 0 then
-                  local enemies = GetAllEnemies()
-                  if #enemies > 0 then
-                     currentTarget = enemies[1]
-                  else
-                     currentTarget = nil
-                     return
-                  end
-               end
-               
-               if currentTarget then
-                  local enemyRoot = currentTarget:FindFirstChild("HumanoidRootPart") or currentTarget:FindFirstChild("Torso") or currentTarget:FindFirstChild("Head")
-                  if enemyRoot then
-                     hrp.CFrame = enemyRoot.CFrame + Vector3.new(0, 5, 0)
-                     task.wait(0.05)
-                     AttackEnemy()
-                  end
-               end
+    Name = "Enable Auto Kill",
+    CurrentValue = false,
+    Callback = function(value)
+        State.autoKillEnabled = value
+        
+        if value then
+            if Config.toolName == "" then
+                Notify("Error", "Enter tool name!")
+                return
+            end
+            
+            Notify("Enabled", "Auto Kill ON")
+            
+            Connections.autoKill = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    local character = LocalPlayer.Character
+                    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+                    
+                    local hrp = character.HumanoidRootPart
+                    
+                    if not Data.currentTarget or not Data.currentTarget.Parent then
+                        local enemies = GetAllEnemies()
+                        if #enemies > 0 then
+                            Data.currentTarget = enemies[1]
+                        else
+                            return
+                        end
+                    end
+                    
+                    if Data.currentTarget then
+                        local humanoid = Data.currentTarget:FindFirstChild("Humanoid")
+                        if not humanoid or humanoid.Health <= 0 then
+                            Data.currentTarget = nil
+                            return
+                        end
+                        
+                        local enemyRoot = Data.currentTarget:FindFirstChild("HumanoidRootPart") or 
+                                        Data.currentTarget:FindFirstChild("Torso") or 
+                                        Data.currentTarget:FindFirstChild("Head")
+                        if enemyRoot then
+                            hrp.CFrame = enemyRoot.CFrame + Vector3.new(0, 5, 0)
+                            task.wait(0.05)
+                            AttackEnemy()
+                        end
+                    end
+                end)
             end)
-         end)
-      else
-         currentTarget = nil
-         if autoKillConnection then
-            autoKillConnection:Disconnect()
-         end
-      end
-   end,
+        else
+            Data.currentTarget = nil
+            if Connections.autoKill then
+                Connections.autoKill:Disconnect()
+            end
+            Notify("Disabled", "Auto Kill OFF")
+        end
+    end
 })
 
 -- Visual Tab
-local VisualSection = VisualTab:CreateSection("🎯 Hitbox Expander")
+VisualTab:CreateSection("🎯 Hitbox Expander")
 
 VisualTab:CreateSlider({
-   Name = "Hitbox Size",
-   Range = {5, 100},
-   Increment = 5,
-   Suffix = " studs",
-   CurrentValue = 20,
-   Flag = "HitboxSize",
-   Callback = function(Value)
-      hitboxSize = Value
-      if hitboxEnabled then
-         RestoreHitbox()
-         ExpandHitbox(hitboxSize)
-      end
-   end,
+    Name = "Size",
+    Range = {5, 100},
+    Increment = 5,
+    Suffix = " studs",
+    CurrentValue = 20,
+    Callback = function(value)
+        Config.hitboxSize = value
+        if State.hitboxEnabled then
+            RestoreHitbox()
+            ExpandHitbox(value)
+        end
+    end
 })
 
 VisualTab:CreateToggle({
-   Name = "Enable Hitbox",
-   CurrentValue = false,
-   Flag = "HitboxToggle",
-   Callback = function(Value)
-      hitboxEnabled = Value
-      
-      if hitboxEnabled then
-         local count = ExpandHitbox(hitboxSize)
-         Rayfield:Notify({
-            Title = "Hitbox ON",
-            Content = "Enemies: " .. count,
-            Duration = 3,
-            Image = 4483362458,
-         })
-         
-         hitboxConnection = RunService.Heartbeat:Connect(function()
-            pcall(function()
-               ExpandHitbox(hitboxSize)
+    Name = "Enable Hitbox",
+    CurrentValue = false,
+    Callback = function(value)
+        State.hitboxEnabled = value
+        
+        if value then
+            local count = ExpandHitbox(Config.hitboxSize)
+            Notify("Enabled", "Hitbox ON: " .. count)
+            
+            Connections.hitbox = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    ExpandHitbox(Config.hitboxSize)
+                end)
             end)
-         end)
-      else
-         RestoreHitbox()
-         if hitboxConnection then
-            hitboxConnection:Disconnect()
-         end
-      end
-   end,
+        else
+            RestoreHitbox()
+            if Connections.hitbox then
+                Connections.hitbox:Disconnect()
+            end
+            Notify("Disabled", "Hitbox OFF")
+        end
+    end
 })
 
 -- Credits
-local CreditsTab = Window:CreateTab("📜 Credits", 4483362458)
-
 CreditsTab:CreateParagraph({
-   Title = "🌿 Protect a Garden Hub",
-   Content = "Made by Rey_Script\n\nVersion: 2.0\n\nFeatures:\n• Item Pickup\n• Auto Money\n• Kill Aura\n• Auto Kill\n• Hitbox Expander"
+    Title = "🌿 Protect a Garden Hub",
+    Content = "Made by Rey_Script\nVersion: 2.1\n\nFeatures:\n• Item Pickup\n• Auto Money\n• Kill Aura\n• Auto Kill\n• Hitbox Expander"
 })
 
-print("✅ Rey_Script Hub loaded!")
+print("✅ Rey_Script Hub v2.1 loaded successfully!")
