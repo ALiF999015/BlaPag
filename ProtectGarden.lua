@@ -2,17 +2,20 @@
 -- Created by Rey_Script
 -- Using Rayfield UI Library
 
-repeat task.wait() until game:IsLoaded()
+-- Wait for game to load
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
 
-local success, Rayfield = pcall(function()
-    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-end)
+-- Load Rayfield UI Library
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
-if not success then
+if not Rayfield then
     warn("Failed to load Rayfield UI Library")
     return
 end
 
+-- Create Window
 local Window = Rayfield:CreateWindow({
    Name = "🌿 Protect a Garden - Rey_Script Hub",
    LoadingTitle = "Rey_Script Hub Loading...",
@@ -39,12 +42,13 @@ local Window = Rayfield:CreateWindow({
    }
 })
 
--- Variables
+-- Services
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+-- Variables
 local itemName = ""
 local toolName = ""
 local killAuraRadius = 20
@@ -117,24 +121,20 @@ local function AttackEnemy()
     local tool = character:FindFirstChild(toolName)
     if not tool then return false end
     
-    -- Try multiple attack methods
     local success = false
     
-    -- Method 1: ToolActive RemoteEvent
     local toolActive = tool:FindFirstChild("ToolActive")
     if toolActive and toolActive:IsA("RemoteEvent") then
         toolActive:FireServer()
         success = true
     end
     
-    -- Method 2: RemoteEvent directly in tool
     local remoteEvent = tool:FindFirstChildOfClass("RemoteEvent")
     if remoteEvent then
         remoteEvent:FireServer()
         success = true
     end
     
-    -- Method 3: Attack function
     local attackFunc = tool:FindFirstChild("Attack")
     if attackFunc and attackFunc:IsA("RemoteFunction") then
         attackFunc:InvokeServer()
@@ -154,7 +154,6 @@ local function ExpandHitbox(size)
     
     for _, enemy in pairs(enemyFolder:GetChildren()) do
         if enemy:IsA("Model") then
-            -- Try to find any body part to expand
             for _, part in pairs(enemy:GetDescendants()) do
                 if part:IsA("BasePart") and (part.Name == "HumanoidRootPart" or part.Name == "Torso" or part.Name == "Head") then
                     if not originalSizes[part] then
@@ -172,7 +171,7 @@ local function ExpandHitbox(size)
                     part.CanCollide = false
                     part.Massless = true
                     count = count + 1
-                    break -- Only expand one part per enemy
+                    break
                 end
             end
         end
@@ -236,11 +235,9 @@ local function AutoGetMoney(mode, distance)
         for _, moneyPart in pairs(moneyParts) do
             if moneyPart and moneyPart.Parent then
                 pcall(function()
-                    -- Teleport to money
                     hrp.CFrame = moneyPart.CFrame + Vector3.new(0, 3, 0)
                     task.wait(0.1)
                     
-                    -- Try interaction methods
                     if firetouchinterest then
                         firetouchinterest(hrp, moneyPart, 0)
                         task.wait(0.05)
@@ -261,12 +258,11 @@ local function AutoGetMoney(mode, distance)
                 end)
             end
         end
-    else -- No TP mode with distance
+    else
         local moneyParts = GetMoneyInRange(distance)
         for _, moneyPart in pairs(moneyParts) do
             if moneyPart and moneyPart.Parent then
                 pcall(function()
-                    -- Try interaction without TP
                     if firetouchinterest then
                         firetouchinterest(hrp, moneyPart, 0)
                         task.wait(0.05)
@@ -283,7 +279,6 @@ local function AutoGetMoney(mode, distance)
                         fireclickdetector(clickDetector)
                     end
                     
-                    -- Try remote events
                     local remoteEvent = moneyPart:FindFirstChildOfClass("RemoteEvent")
                     if remoteEvent then
                         remoteEvent:FireServer()
@@ -304,7 +299,6 @@ local function AutoGetMoney(mode, distance)
         end
     end
     
-    -- Clear collected money table
     for part, _ in pairs(collectedMoney) do
         if not part or not part.Parent then
             collectedMoney[part] = nil
@@ -312,14 +306,14 @@ local function AutoGetMoney(mode, distance)
     end
 end
 
--- Tabs
+-- Create Tabs
 local MainTab = Window:CreateTab("🏠 Main", 4483362458)
 local FarmTab = Window:CreateTab("💰 Farm", 4483362458)
 local CombatTab = Window:CreateTab("⚔️ Combat", 4483362458)
 local AutoKillTab = Window:CreateTab("🎯 Auto Kill", 4483362458)
 local VisualTab = Window:CreateTab("👁️ Visual", 4483362458)
 
--- Main Tab - Item Pickup Section
+-- Main Tab
 local ItemSection = MainTab:CreateSection("📦 Item Pickup")
 
 local ItemInput = MainTab:CreateInput({
@@ -344,32 +338,22 @@ local ItemButton = MainTab:CreateButton({
          return
       end
       
-      local success, err = pcall(function()
+      pcall(function()
          local args = {
             workspace:WaitForChild(itemName)
          }
          ReplicatedStorage:WaitForChild("RemoteEvent"):WaitForChild("PickupItem"):FireServer(unpack(args))
-      end)
-      
-      if success then
          Rayfield:Notify({
             Title = "Success",
             Content = "Item pickup executed!",
             Duration = 3,
             Image = 4483362458,
          })
-      else
-         Rayfield:Notify({
-            Title = "Error",
-            Content = "Failed to pickup item",
-            Duration = 3,
-            Image = 4483362458,
-         })
-      end
+      end)
    end,
 })
 
--- Farm Tab - Auto Get Money Section
+-- Farm Tab
 local MoneySection = FarmTab:CreateSection("💰 Auto Get Money")
 
 local MoneyModeDropdown = FarmTab:CreateDropdown({
@@ -393,7 +377,7 @@ local MoneyDistanceInput = FarmTab:CreateInput({
          moneyDistance = dist
          Rayfield:Notify({
             Title = "Distance Updated",
-            Content = "Interaction distance set to: " .. dist .. " studs",
+            Content = "Set to: " .. dist .. " studs",
             Duration = 2,
             Image = 4483362458,
          })
@@ -410,10 +394,9 @@ local AutoMoneyToggle = FarmTab:CreateToggle({
       
       if autoMoneyEnabled then
          collectedMoney = {}
-         
          Rayfield:Notify({
-            Title = "Auto Money Activated",
-            Content = "Mode: " .. moneyMode .. " | Distance: " .. moneyDistance,
+            Title = "Auto Money ON",
+            Content = "Mode: " .. moneyMode,
             Duration = 3,
             Image = 4483362458,
          })
@@ -425,8 +408,8 @@ local AutoMoneyToggle = FarmTab:CreateToggle({
          end)
       else
          Rayfield:Notify({
-            Title = "Auto Money Deactivated",
-            Content = "Money collection disabled",
+            Title = "Auto Money OFF",
+            Content = "Disabled",
             Duration = 3,
             Image = 4483362458,
          })
@@ -439,23 +422,23 @@ local AutoMoneyToggle = FarmTab:CreateToggle({
    end,
 })
 
-local ResetMoneyButton = FarmTab:CreateButton({
+FarmTab:CreateButton({
    Name = "Reset Money Cache",
    Callback = function()
       collectedMoney = {}
       Rayfield:Notify({
          Title = "Cache Reset",
-         Content = "Money cache cleared!",
+         Content = "Done!",
          Duration = 2,
          Image = 4483362458,
       })
    end,
 })
 
--- Combat Tab - Kill Aura Section
+-- Combat Tab
 local CombatSection = CombatTab:CreateSection("⚔️ Kill Aura")
 
-local ToolInput = CombatTab:CreateInput({
+CombatTab:CreateInput({
    Name = "Tool Name",
    PlaceholderText = "Enter tool name...",
    RemoveTextAfterFocusLost = false,
@@ -464,7 +447,7 @@ local ToolInput = CombatTab:CreateInput({
    end,
 })
 
-local RadiusSlider = CombatTab:CreateSlider({
+CombatTab:CreateSlider({
    Name = "Kill Aura Radius",
    Range = {5, 100},
    Increment = 5,
@@ -476,7 +459,7 @@ local RadiusSlider = CombatTab:CreateSlider({
    end,
 })
 
-local KillAuraToggle = CombatTab:CreateToggle({
+CombatTab:CreateToggle({
    Name = "Enable Kill Aura",
    CurrentValue = false,
    Flag = "KillAuraToggle",
@@ -487,18 +470,16 @@ local KillAuraToggle = CombatTab:CreateToggle({
          if toolName == "" then
             Rayfield:Notify({
                Title = "Error",
-               Content = "Please enter a tool name!",
+               Content = "Enter tool name!",
                Duration = 3,
                Image = 4483362458,
             })
-            killAuraEnabled = false
-            KillAuraToggle:Set(false)
             return
          end
          
          Rayfield:Notify({
-            Title = "Kill Aura Activated",
-            Content = "Radius: " .. killAuraRadius .. " studs",
+            Title = "Kill Aura ON",
+            Content = "Radius: " .. killAuraRadius,
             Duration = 3,
             Image = 4483362458,
          })
@@ -512,16 +493,8 @@ local KillAuraToggle = CombatTab:CreateToggle({
             end)
          end)
       else
-         Rayfield:Notify({
-            Title = "Kill Aura Deactivated",
-            Content = "Kill Aura disabled",
-            Duration = 3,
-            Image = 4483362458,
-         })
-         
          if killAuraConnection then
             killAuraConnection:Disconnect()
-            killAuraConnection = nil
          end
       end
    end,
@@ -530,8 +503,8 @@ local KillAuraToggle = CombatTab:CreateToggle({
 -- Auto Kill Tab
 local AutoKillSection = AutoKillTab:CreateSection("🎯 Auto Kill Enemy")
 
-local AutoKillToolInput = AutoKillTab:CreateInput({
-   Name = "Tool Name for Auto Kill",
+AutoKillTab:CreateInput({
+   Name = "Tool Name",
    PlaceholderText = "Enter tool name...",
    RemoveTextAfterFocusLost = false,
    Callback = function(Text)
@@ -539,8 +512,8 @@ local AutoKillToolInput = AutoKillTab:CreateInput({
    end,
 })
 
-local AutoKillToggle = AutoKillTab:CreateToggle({
-   Name = "Enable Auto Kill Enemy",
+AutoKillTab:CreateToggle({
+   Name = "Enable Auto Kill",
    CurrentValue = false,
    Flag = "AutoKillToggle",
    Callback = function(Value)
@@ -550,18 +523,16 @@ local AutoKillToggle = AutoKillTab:CreateToggle({
          if toolName == "" then
             Rayfield:Notify({
                Title = "Error",
-               Content = "Please enter a tool name!",
+               Content = "Enter tool name!",
                Duration = 3,
                Image = 4483362458,
             })
-            autoKillEnabled = false
-            AutoKillToggle:Set(false)
             return
          end
          
          Rayfield:Notify({
-            Title = "Auto Kill Activated",
-            Content = "Hunting enemies in workspace.Enemy...",
+            Title = "Auto Kill ON",
+            Content = "Hunting...",
             Duration = 3,
             Image = 4483362458,
          })
@@ -575,7 +546,6 @@ local AutoKillToggle = AutoKillTab:CreateToggle({
                
                local hrp = character.HumanoidRootPart
                
-               -- Find target if we don't have one
                if not currentTarget or not currentTarget.Parent or currentTarget:FindFirstChild("Humanoid").Health <= 0 then
                   local enemies = GetAllEnemies()
                   if #enemies > 0 then
@@ -586,46 +556,29 @@ local AutoKillToggle = AutoKillTab:CreateToggle({
                   end
                end
                
-               -- Teleport to target and attack
                if currentTarget then
                   local enemyRoot = currentTarget:FindFirstChild("HumanoidRootPart") or currentTarget:FindFirstChild("Torso") or currentTarget:FindFirstChild("Head")
                   if enemyRoot then
-                     -- Teleport above enemy
                      hrp.CFrame = enemyRoot.CFrame + Vector3.new(0, 5, 0)
                      task.wait(0.05)
-                     
-                     -- Attack
                      AttackEnemy()
                   end
                end
             end)
          end)
       else
-         Rayfield:Notify({
-            Title = "Auto Kill Deactivated",
-            Content = "Auto kill disabled",
-            Duration = 3,
-            Image = 4483362458,
-         })
-         
          currentTarget = nil
          if autoKillConnection then
             autoKillConnection:Disconnect()
-            autoKillConnection = nil
          end
       end
    end,
 })
 
-local AutoKillInfo = AutoKillTab:CreateParagraph({
-   Title = "ℹ️ Auto Kill Info",
-   Content = "Auto Kill will:\n• Detect enemies in workspace.Enemy\n• Teleport above enemy\n• Auto attack until enemy dies\n• Move to next enemy automatically"
-})
-
--- Visual Tab - Hitbox Expander Section
+-- Visual Tab
 local VisualSection = VisualTab:CreateSection("🎯 Hitbox Expander")
 
-local HitboxSlider = VisualTab:CreateSlider({
+VisualTab:CreateSlider({
    Name = "Hitbox Size",
    Range = {5, 100},
    Increment = 5,
@@ -634,7 +587,6 @@ local HitboxSlider = VisualTab:CreateSlider({
    Flag = "HitboxSize",
    Callback = function(Value)
       hitboxSize = Value
-      
       if hitboxEnabled then
          RestoreHitbox()
          ExpandHitbox(hitboxSize)
@@ -642,5 +594,42 @@ local HitboxSlider = VisualTab:CreateSlider({
    end,
 })
 
-local HitboxToggle = VisualTab:CreateToggle({
-   Name = "Enable Hitbo
+VisualTab:CreateToggle({
+   Name = "Enable Hitbox",
+   CurrentValue = false,
+   Flag = "HitboxToggle",
+   Callback = function(Value)
+      hitboxEnabled = Value
+      
+      if hitboxEnabled then
+         local count = ExpandHitbox(hitboxSize)
+         Rayfield:Notify({
+            Title = "Hitbox ON",
+            Content = "Enemies: " .. count,
+            Duration = 3,
+            Image = 4483362458,
+         })
+         
+         hitboxConnection = RunService.Heartbeat:Connect(function()
+            pcall(function()
+               ExpandHitbox(hitboxSize)
+            end)
+         end)
+      else
+         RestoreHitbox()
+         if hitboxConnection then
+            hitboxConnection:Disconnect()
+         end
+      end
+   end,
+})
+
+-- Credits
+local CreditsTab = Window:CreateTab("📜 Credits", 4483362458)
+
+CreditsTab:CreateParagraph({
+   Title = "🌿 Protect a Garden Hub",
+   Content = "Made by Rey_Script\n\nVersion: 2.0\n\nFeatures:\n• Item Pickup\n• Auto Money\n• Kill Aura\n• Auto Kill\n• Hitbox Expander"
+})
+
+print("✅ Rey_Script Hub loaded!")
